@@ -16,6 +16,7 @@ async def test_health_and_readiness_endpoints() -> None:
             assert data["status"] == "ok"
             assert data["service"] == "ai-insurance-ops"
             assert data["app_name"] == "AI Insurance Operations"
+            assert data["database"] == "ok"
             assert response.headers["x-content-type-options"] == "nosniff"
             assert response.headers["x-frame-options"] == "DENY"
 

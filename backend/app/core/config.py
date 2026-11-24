@@ -24,16 +24,33 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     database_url: str = "sqlite+aiosqlite:///./ai_insurance_ops.db"
+    auto_create_tables: bool = True
+    seed_demo_data: bool = False
 
     llm_default_provider: Literal["mock", "ollama", "gemini"] = "mock"
     llm_fallback_providers: str = "ollama,gemini,mock"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_default_model: str = "llama-3.1-8b-instruct"
+    gemini_api_key: str = ""
+    gemini_default_model: str = "gemini-2.5-flash"
+    embedding_dimensions: int = 384
     llm_redact_pii_for_cloud: bool = True
 
+    reserve_auto_approve_limit: float = 25000.0
+    coverage_auto_approve_limit: float = 25000.0
+    fraud_siu_threshold: float = 0.60
+    uw_auto_quote_limit: float = 1000000.0
+
     auth_secret_key: str = _DEFAULT_DEV_SECRET
+    auth_require_token: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def llm_fallback_list(self) -> list[str]:
+        return [p.strip().lower() for p in self.llm_fallback_providers.split(",") if p.strip()]
 
 
 @lru_cache(maxsize=1)
