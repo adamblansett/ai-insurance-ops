@@ -269,3 +269,18 @@ export interface PiiRedactionResult {
   findings: PiiRedactionFinding[];
   total_redactions: number;
 }
+
+export interface IngestionJobItem {
+  id: string;
+  job_type: string;
+  status: string;
+  filename: string;
+  policy_id: string | null;
+  requested_by: string;
+  progress_pct: number;
+  result: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}

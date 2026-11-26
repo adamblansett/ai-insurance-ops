@@ -25,6 +25,10 @@ def build_engine(database_url: str) -> AsyncEngine:
             kwargs["poolclass"] = StaticPool
     else:
         kwargs["pool_pre_ping"] = True
+        kwargs["pool_size"] = 10
+        kwargs["max_overflow"] = 20
+        kwargs["pool_timeout"] = 30
+        kwargs["pool_recycle"] = 1800
     return create_async_engine(database_url, **kwargs)
 
 

@@ -254,6 +254,9 @@ function buildApiMock() {
         total_redactions: 3,
       });
     }
+    if (url === '/api/v1/jobs') {
+      return jsonResponse([]);
+    }
     return jsonResponse({});
   });
 }

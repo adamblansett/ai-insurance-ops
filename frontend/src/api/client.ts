@@ -7,6 +7,7 @@ import type {
   ClauseSearchResult,
   CoverageVerificationItem,
   HealthStatus,
+  IngestionJobItem,
   OverviewSummary,
   PiiRedactionResult,
   PolicyDetail,
@@ -77,6 +78,22 @@ export function uploadPolicyFile(actor: ActorContext, file: File): Promise<Polic
     method: 'POST',
     body: form,
   });
+}
+
+export function uploadPolicyFileAsync(
+  actor: ActorContext,
+  file: File,
+): Promise<IngestionJobItem> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiFetch<IngestionJobItem>('/api/v1/intake/policies/upload-async', actor, {
+    method: 'POST',
+    body: form,
+  });
+}
+
+export function fetchIngestionJobs(actor: ActorContext): Promise<IngestionJobItem[]> {
+  return apiFetch<IngestionJobItem[]>('/api/v1/jobs', actor);
 }
 
 export function createPolicy(

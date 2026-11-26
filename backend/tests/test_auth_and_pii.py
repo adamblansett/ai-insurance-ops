@@ -174,6 +174,8 @@ async def test_insurance_pii_redaction_and_cloud_llm_scrubbing(
     captured_payloads: list[str] = []
 
     class FakeResponse:
+        status_code = 200
+
         def raise_for_status(self) -> None:
             return None
 

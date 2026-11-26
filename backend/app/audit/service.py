@@ -1,10 +1,12 @@
+import asyncio
 import hashlib
 import json
 from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.schemas import AuditChainVerifyOut
@@ -51,6 +53,9 @@ def compute_event_hash(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+_AUDIT_WRITE_LOCK = asyncio.Lock()
+
+
 async def record_audit_event(
     db: AsyncSession,
     *,
@@ -62,39 +67,53 @@ async def record_audit_event(
     details: dict[str, Any] | None = None,
 ) -> AuditEvent:
     """Append an immutable hash-chained event to the insurance operations audit log."""
-    stmt = select(AuditEvent).order_by(AuditEvent.sequence_no.desc()).limit(1)
-    latest = (await db.execute(stmt)).scalar_one_or_none()
-
-    next_seq = (latest.sequence_no + 1) if latest is not None else 1
-    prev_hash = latest.event_hash if latest is not None else "GENESIS"
     clean_details = details or {}
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else "sqlite"
 
-    event_hash = compute_event_hash(
-        sequence_no=next_seq,
-        event_type=event_type,
-        actor_email=actor.email,
-        actor_role=actor.role,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        action=action,
-        details=clean_details,
-        prev_hash=prev_hash,
-    )
-    event = AuditEvent(
-        sequence_no=next_seq,
-        event_type=event_type,
-        actor_email=actor.email,
-        actor_role=actor.role,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        action=action,
-        details_json=clean_details,
-        prev_hash=prev_hash,
-        event_hash=event_hash,
-    )
-    db.add(event)
-    await db.flush()
-    return event
+    async with _AUDIT_WRITE_LOCK:
+        for attempt in range(3):
+            if dialect_name == "postgresql":
+                await db.execute(text("SELECT pg_advisory_xact_lock(72819401)"))
+
+            stmt = select(AuditEvent).order_by(AuditEvent.sequence_no.desc()).limit(1)
+            latest = (await db.execute(stmt)).scalar_one_or_none()
+
+            next_seq = (latest.sequence_no + 1) if latest is not None else 1
+            prev_hash = latest.event_hash if latest is not None else "GENESIS"
+
+            event_hash = compute_event_hash(
+                sequence_no=next_seq,
+                event_type=event_type,
+                actor_email=actor.email,
+                actor_role=actor.role,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action=action,
+                details=clean_details,
+                prev_hash=prev_hash,
+            )
+            event = AuditEvent(
+                sequence_no=next_seq,
+                event_type=event_type,
+                actor_email=actor.email,
+                actor_role=actor.role,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action=action,
+                details_json=clean_details,
+                prev_hash=prev_hash,
+                event_hash=event_hash,
+            )
+            try:
+                async with db.begin_nested():
+                    db.add(event)
+                    await db.flush()
+                return event
+            except IntegrityError:
+                if attempt == 2:
+                    raise
+    raise RuntimeError("Failed to append audit event after retries.")
 
 
 async def verify_audit_chain(db: AsyncSession) -> AuditChainVerifyOut:

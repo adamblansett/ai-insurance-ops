@@ -15,6 +15,8 @@ class HealthResponse(BaseModel):
     environment: str
     llm_provider: str
     database: str = "ok"
+    vector_backend: str = "sqlite_json"
+    task_execution_mode: str = "inline"
 
 
 def _resolve_settings(request: Request, fallback: Settings) -> Settings:
@@ -22,6 +24,13 @@ def _resolve_settings(request: Request, fallback: Settings) -> Settings:
     if isinstance(app_cfg, Settings):
         return app_cfg
     return fallback
+
+
+def _resolve_vector_backend(request: Request) -> str:
+    db_engine = getattr(request.app.state, "db_engine", None)
+    if db_engine is not None and db_engine.dialect.name == "postgresql":
+        return "pgvector"
+    return "sqlite_json"
 
 
 @router.get("", response_model=HealthResponse)
@@ -40,6 +49,8 @@ async def health_live(
         environment=cfg.app_env,
         llm_provider=cfg.llm_default_provider,
         database="ok",
+        vector_backend=_resolve_vector_backend(request),
+        task_execution_mode=cfg.task_execution_mode,
     )
 
 
@@ -53,6 +64,7 @@ async def health_ready(
     cfg = _resolve_settings(request, settings)
     db_engine = getattr(request.app.state, "db_engine", None)
     ready = db_engine is not None and await check_db_ready(db_engine)
+    vector_backend = _resolve_vector_backend(request)
     if not ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         return HealthResponse(
@@ -63,6 +75,8 @@ async def health_ready(
             environment=cfg.app_env,
             llm_provider=cfg.llm_default_provider,
             database="unreachable",
+            vector_backend=vector_backend,
+            task_execution_mode=cfg.task_execution_mode,
         )
     return HealthResponse(
         status="ok",
@@ -72,4 +86,6 @@ async def health_ready(
         environment=cfg.app_env,
         llm_provider=cfg.llm_default_provider,
         database="ok",
+        vector_backend=vector_backend,
+        task_execution_mode=cfg.task_execution_mode,
     )

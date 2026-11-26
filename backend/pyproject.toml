@@ -24,6 +24,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+worker = [
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",

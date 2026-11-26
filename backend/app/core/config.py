@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     auto_create_tables: bool = True
     seed_demo_data: bool = False
 
+    redis_url: str = "redis://redis:6379/0"
+    celery_broker_url: str = "redis://redis:6379/0"
+    celery_result_backend: str = "redis://redis:6379/1"
+    task_execution_mode: Literal["inline", "celery"] = "inline"
+
     llm_default_provider: Literal["mock", "ollama", "gemini"] = "mock"
     llm_fallback_providers: str = "ollama,gemini,mock"
     ollama_base_url: str = "http://localhost:11434"
@@ -43,6 +48,10 @@ class Settings(BaseSettings):
 
     auth_secret_key: str = _DEFAULT_DEV_SECRET
     auth_require_token: bool = False
+
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 120
+    rate_limit_auth_per_minute: int = 30
 
     @property
     def cors_origin_list(self) -> list[str]:

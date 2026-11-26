@@ -15,6 +15,7 @@ import {
   fetchClaims,
   fetchCoverageVerifications,
   fetchHealth,
+  fetchIngestionJobs,
   fetchOverview,
   fetchPolicies,
   fetchSubmissions,
@@ -36,6 +37,7 @@ import type {
   ClaimItem,
   CoverageVerificationItem,
   HealthStatus,
+  IngestionJobItem,
   OverviewSummary,
   PolicySummary,
   UnderwritingSubmissionItem,
@@ -76,6 +78,7 @@ export default function App() {
   const [approvals, setApprovals] = useState<ApprovalRequestItem[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventItem[]>([]);
   const [chainStatus, setChainStatus] = useState<AuditChainVerify | null>(null);
+  const [ingestionJobs, setIngestionJobs] = useState<IngestionJobItem[]>([]);
 
   const notify = useCallback((text: string, isError = false) => {
     setBanner({ text, isError });
@@ -83,7 +86,7 @@ export default function App() {
 
   const refreshWorkspace = useCallback(async () => {
     try {
-      const [ov, pols, clms, vers, subs, apps, evs, chain] = await Promise.all([
+      const [ov, pols, clms, vers, subs, apps, evs, chain, jobs] = await Promise.all([
         fetchOverview(actor),
         fetchPolicies(actor),
         fetchClaims(actor),
@@ -92,6 +95,7 @@ export default function App() {
         fetchApprovals(actor),
         fetchAuditEvents(actor),
         verifyAuditChain(actor),
+        fetchIngestionJobs(actor),
       ]);
       setOverview(ov);
       setPolicies(pols);
@@ -101,10 +105,11 @@ export default function App() {
       setApprovals(apps);
       setAuditEvents(evs);
       setChainStatus(chain);
-    } catch {
-      // Keep UI resilient during offline preview
+      setIngestionJobs(Array.isArray(jobs) ? jobs : []);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Workspace refresh failed', true);
     }
-  }, [actor]);
+  }, [actor, notify]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +276,7 @@ export default function App() {
           <PolicyIntakeView
             actor={actor}
             policies={policies}
+            jobs={ingestionJobs}
             onRefresh={refreshWorkspace}
             onNotify={notify}
           />

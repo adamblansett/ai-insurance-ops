@@ -1,6 +1,6 @@
 # AI Insurance Operations — Architecture Blueprint
 
-**Status:** Phase 1 Implemented
+**Status:** Phase 2 Implemented
 
 ## Overview
 
@@ -8,7 +8,8 @@ Open-source, self-hosted AI insurance operations platform for policy intake, cla
 
 ## Domain Modules (`backend/app/`)
 
-- `intake/` — Policy PDF/TXT/JSON ACORD & declaration parser, deterministic hashed embeddings, schedule extraction, and hybrid clause search (`/api/v1/intake`).
+- `intake/` — Policy PDF/TXT/JSON ACORD & declaration parser, deterministic hashed embeddings, schedule extraction, and hybrid `pgvector` HNSW / SQLite clause search (`/api/v1/intake`).
+- `jobs/` — Asynchronous background policy ingestion tracking (`ingestion_jobs`) supporting FastAPI `BackgroundTasks` (`inline` mode) or distributed Celery + Redis workers (`celery` mode) (`/api/v1/jobs`).
 - `claims/` — FNOL intake pipeline, reserve-band & LAE sizing, weighted SIU fraud red-flag scoring, and adjuster queue routing (`/api/v1/claims`).
 - `coverage/` — Citation-grounded coverage matcher resolving policy effective windows, grants, endorsement buy-backs, sublimits, deductibles, notice conditions, and exclusions (`/api/v1/coverage`).
 - `underwriting/` — LOB submission completeness scorer, 3/5-year loss-run & loss-ratio analyzer, risk-tier pricing engine, and supplemental reanalysis (`/api/v1/underwriting`).

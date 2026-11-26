@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,6 +31,12 @@ from app.intake.service import (
     search_clauses_hybrid,
     serialize_clause,
     serialize_policy_detail,
+)
+from app.jobs.schemas import IngestionJobOut
+from app.jobs.service import (
+    create_ingestion_job,
+    dispatch_policy_upload_job,
+    serialize_job,
 )
 from app.llm.router import LLMRouter, get_llm_router
 
@@ -100,6 +115,55 @@ async def upload_policy_document(
         settings=cfg,
     )
     return serialize_policy_detail(policy)
+
+
+@router.post(
+    "/policies/upload-async",
+    response_model=IngestionJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def upload_policy_document_async(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    actor: Actor = Depends(require_roles("adjuster", "underwriter", "claims_manager", "admin")),
+    db: AsyncSession = Depends(get_db),
+    llm_router: LLMRouter = Depends(get_llm_router),
+    settings: Settings = Depends(get_settings),
+) -> IngestionJobOut:
+    """Queue a policy PDF/TXT/JSON upload for asynchronous ingestion and indexing."""
+    filename = (file.filename or "").strip()
+    if not filename or not filename.lower().endswith(_ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file type. Upload a .pdf, .txt, or .json policy document.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Uploaded policy document exceeds the 15 MB size limit.",
+        )
+
+    cfg = _resolve_settings(request, settings)
+    job = await create_ingestion_job(db, filename=filename, actor=actor)
+    dispatch_policy_upload_job(
+        background_tasks=background_tasks,
+        job_id=job.id,
+        filename=filename,
+        data=data,
+        actor=actor,
+        session_factory=request.app.state.session_factory,
+        llm_router=llm_router,
+        settings=cfg,
+    )
+    return serialize_job(job)
 
 
 @router.get("/policies", response_model=list[PolicySummaryOut])

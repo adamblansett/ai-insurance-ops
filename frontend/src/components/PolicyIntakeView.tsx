@@ -5,10 +5,12 @@ import {
   fetchPolicyDetail,
   searchClauses,
   uploadPolicyFile,
+  uploadPolicyFileAsync,
 } from '../api/client';
 import type {
   ActorContext,
   ClauseSearchResult,
+  IngestionJobItem,
   PolicyDetail,
   PolicySummary,
 } from '../types/insurance';
@@ -17,6 +19,7 @@ import { StatusBadge, formatMoney } from './StatusBadge';
 interface PolicyIntakeViewProps {
   actor: ActorContext;
   policies: PolicySummary[];
+  jobs?: IngestionJobItem[];
   onRefresh: () => Promise<void>;
   onNotify: (msg: string, isError?: boolean) => void;
 }
@@ -24,6 +27,7 @@ interface PolicyIntakeViewProps {
 export function PolicyIntakeView({
   actor,
   policies,
+  jobs = [],
   onRefresh,
   onNotify,
 }: PolicyIntakeViewProps) {
@@ -31,6 +35,7 @@ export function PolicyIntakeView({
   const [detail, setDetail] = useState<PolicyDetail | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ClauseSearchResult[]>([]);
+  const [asyncUpload, setAsyncUpload] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [policyNumber, setPolicyNumber] = useState('POL-CP-2026-9901');
@@ -57,26 +62,34 @@ export function PolicyIntakeView({
         if (!cancelled) {
           setDetail(res);
         }
-      } catch {
-        // ignore transient error
+      } catch (err) {
+        if (!cancelled) {
+          onNotify(err instanceof Error ? err.message : 'Failed to load policy details', true);
+        }
       }
     }
     void loadDetail();
     return () => {
       cancelled = true;
     };
-  }, [actor, selectedId]);
+  }, [actor, onNotify, selectedId]);
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setBusy(true);
     try {
-      const created = await uploadPolicyFile(actor, file);
-      setSelectedId(created.id);
-      setDetail(created);
-      onNotify(`Ingested ${created.policy_number} (${created.clause_count} clauses).`);
-      await onRefresh();
+      if (asyncUpload) {
+        const job = await uploadPolicyFileAsync(actor, file);
+        onNotify(`Queued ingestion job ${job.id.slice(0, 8)} (${job.filename}).`);
+        await onRefresh();
+      } else {
+        const created = await uploadPolicyFile(actor, file);
+        setSelectedId(created.id);
+        setDetail(created);
+        onNotify(`Ingested ${created.policy_number} (${created.clause_count} clauses).`);
+        await onRefresh();
+      }
     } catch (err) {
       onNotify(err instanceof Error ? err.message : 'Policy upload failed', true);
     } finally {
@@ -157,7 +170,16 @@ export function PolicyIntakeView({
             Extracts declarations metadata, schedules, and page-indexed coverage grants,
             endorsements, and exclusions.
           </p>
-          <label className="mt-3 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-xs font-semibold text-slate-700 hover:border-indigo-400 hover:bg-indigo-50">
+          <label className="mt-2.5 flex items-center gap-2 text-xs text-slate-600">
+            <input
+              type="checkbox"
+              checked={asyncUpload}
+              onChange={(e) => setAsyncUpload(e.target.checked)}
+              className="rounded border-slate-300 text-indigo-600"
+            />
+            <span>Async Queue Upload (202 Accepted background job)</span>
+          </label>
+          <label className="mt-2.5 flex cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-xs font-semibold text-slate-700 hover:border-indigo-400 hover:bg-indigo-50">
             <span>{busy ? 'Indexing Document...' : 'Select Policy PDF / TXT / JSON'}</span>
             <input
               type="file"
@@ -167,6 +189,23 @@ export function PolicyIntakeView({
               className="sr-only"
             />
           </label>
+
+          {jobs.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Recent Ingestion Jobs
+              </p>
+              {jobs.slice(0, 3).map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-center justify-between rounded border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px]"
+                >
+                  <span className="font-medium text-slate-800">{job.filename}</span>
+                  <StatusBadge value={job.status} />
+                </div>
+              ))}
+            </div>
+          )}
 
           <form onSubmit={handleSearch} className="mt-5 space-y-2">
             <label className="block text-xs font-semibold text-slate-700">

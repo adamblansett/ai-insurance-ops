@@ -233,3 +233,24 @@ class AuditEvent(Base):
     prev_hash: Mapped[str] = mapped_column(String(64))
     event_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IngestionJob(Base):
+    """Asynchronous background policy ingestion job tracking."""
+
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    job_type: Mapped[str] = mapped_column(String(48), default="policy_upload")
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    policy_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("policies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    requested_by: Mapped[str] = mapped_column(String(255))
+    progress_pct: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

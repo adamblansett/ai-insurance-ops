@@ -1,3 +1,5 @@
+import asyncio
+import random
 from typing import Any, Protocol
 
 import httpx
@@ -11,6 +13,39 @@ from app.llm.pii import redact_pii
 logger = structlog.get_logger(__name__)
 
 CLOUD_PROVIDERS = {"gemini"}
+
+
+async def _post_with_retry(
+    url: str,
+    *,
+    json: dict[str, Any],
+    params: dict[str, str] | None = None,
+    max_retries: int = 2,
+    timeout: float = 20.0,
+) -> dict[str, Any]:
+    """Execute outbound HTTP POST with bounded exponential backoff and jitter."""
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, params=params, json=json)
+                if response.status_code >= 500 and attempt < max_retries:
+                    delay = 0.15 * (2**attempt) + random.uniform(0.0, 0.05)
+                    await asyncio.sleep(delay)
+                    continue
+                response.raise_for_status()
+                data: dict[str, Any] = response.json()
+                return data
+        except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = 0.15 * (2**attempt) + random.uniform(0.0, 0.05)
+                await asyncio.sleep(delay)
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("Outbound LLM HTTP request failed without response.")
 
 
 class LLMResponse(BaseModel):
@@ -82,14 +117,11 @@ class OllamaLLMAdapter:
             "system": system_prompt,
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(f"{self.base_url}/api/generate", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            text = str(data.get("response", "")).strip()
-            if not text:
-                raise RuntimeError("Ollama returned an empty response.")
-            return text
+        data = await _post_with_retry(f"{self.base_url}/api/generate", json=payload)
+        text = str(data.get("response", "")).strip()
+        if not text:
+            raise RuntimeError("Ollama returned an empty response.")
+        return text
 
 
 class GeminiLLMAdapter:
@@ -113,14 +145,7 @@ class GeminiLLMAdapter:
         body = {
             "contents": [{"role": "user", "parts": [{"text": combined}]}],
         }
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                url,
-                params={"key": self.api_key},
-                json=body,
-            )
-            response.raise_for_status()
-            data = response.json()
+        data = await _post_with_retry(url, params={"key": self.api_key}, json=body)
         candidates = data.get("candidates") or []
         if not candidates:
             raise RuntimeError("Gemini returned no candidates.")

@@ -27,6 +27,10 @@ jobs:
         run: mypy app
       - name: Run pytest suite
         run: pytest -v
+      - name: Verify Alembic migrations
+        run: |
+          DATABASE_URL=sqlite+aiosqlite:///./ci_alembic.db alembic upgrade head
+          rm -f ci_alembic.db
 
   frontend-typecheck-test-build:
     runs-on: ubuntu-latest

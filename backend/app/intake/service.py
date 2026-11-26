@@ -19,6 +19,7 @@ from app.intake.schemas import (
     PolicyDetailOut,
     PolicySummaryOut,
 )
+from app.intake.vector_store import query_clauses_pgvector, sync_clause_pgvector
 from app.llm.router import LLMRouter
 
 
@@ -150,6 +151,7 @@ async def create_policy_structured(
     db.add(policy)
     await db.flush()
 
+    clause_vectors: list[tuple[PolicyClause, list[float]]] = []
     for item in payload.clauses:
         keywords = item.keywords or extract_keywords(f"{item.title} {item.clause_text}")
         vector = embed_text(
@@ -175,6 +177,11 @@ async def create_policy_structured(
             embedding_json=vector,
         )
         db.add(clause)
+        clause_vectors.append((clause, vector))
+
+    await db.flush()
+    for clause, vector in clause_vectors:
+        await sync_clause_pgvector(db, clause_id=clause.id, embedding=vector)
 
     await record_audit_event(
         db,
@@ -289,20 +296,36 @@ async def search_clauses_hybrid(
     settings: Settings,
 ) -> list[ClauseSearchResultOut]:
     """Rank indexed clauses using cosine similarity plus normalized keyword overlap."""
+    query_vec = embed_text(query, dims=settings.embedding_dimensions)
+    pg_hits = await query_clauses_pgvector(
+        db,
+        query_vec=query_vec,
+        policy_id=policy_id,
+        clause_type=clause_type,
+        limit=limit,
+    )
+    pg_scores = dict(pg_hits) if pg_hits is not None else None
+
     stmt = select(PolicyClause, Policy).join(Policy, Policy.id == PolicyClause.policy_id)
-    if policy_id:
-        stmt = stmt.where(PolicyClause.policy_id == policy_id)
-    if clause_type:
-        stmt = stmt.where(PolicyClause.clause_type == clause_type.strip().lower())
+    if pg_scores is not None and pg_scores:
+        stmt = stmt.where(PolicyClause.id.in_(list(pg_scores.keys())))
+    else:
+        if policy_id:
+            stmt = stmt.where(PolicyClause.policy_id == policy_id)
+        if clause_type:
+            stmt = stmt.where(PolicyClause.clause_type == clause_type.strip().lower())
 
     rows = (await db.execute(stmt)).all()
-    query_vec = embed_text(query, dims=settings.embedding_dimensions)
     query_tokens = set(tokenize(query))
     query_lower = query.lower().strip()
 
     scored: list[ClauseSearchResultOut] = []
     for clause, policy in rows:
-        sim = cosine_similarity(query_vec, clause.embedding_json)
+        sim = (
+            pg_scores[clause.id]
+            if pg_scores is not None and clause.id in pg_scores
+            else cosine_similarity(query_vec, clause.embedding_json)
+        )
         clause_tokens = set(clause.keywords_json) | set(
             tokenize(f"{clause.title} {clause.clause_text}")
         )
